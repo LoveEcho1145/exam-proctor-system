@@ -84,11 +84,7 @@ pip install -r requirements.txt
 
 ### 3. 配置API密钥（可选）
 
-打开项目里的 `.env` 文件，把 API 密钥填进去：
-
-```
-DEEPSEEK_API_KEY=sk-xxxxx你的密钥xxxxx
-```
+[API配置指南](API配置指南.md){:target="_blank"}
 
 不配置的话系统会用模拟推理，也能正常运行。
 
