@@ -84,7 +84,7 @@ pip install -r requirements.txt
 
 ### 3. 配置API密钥（可选）
 
-[API配置指南](API配置指南.md){:target="_blank"}
+[API配置指南](API配置指南.md)
 
 不配置的话系统会用模拟推理，也能正常运行。
 
