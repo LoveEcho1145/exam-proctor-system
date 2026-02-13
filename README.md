@@ -18,7 +18,7 @@ Copyright © 2026 LoveEcho1145
 - 商业培训或咨询服务
 - 任何盈利性活动
 
-如需商业授权，请联系作者：janemlewisa29@gmail.com
+如需商业授权，请联系作者：brody@010912.top
 
 ## 运行环境
 
