@@ -36,6 +36,9 @@ ENV/
 .env
 .env.local
 
+# Claude Code
+CLAUDE.md
+
 # Logs
 *.log
 
