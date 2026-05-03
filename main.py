@@ -18,6 +18,7 @@ import logging
 import argparse
 import signal
 import sys
+import threading
 import cv2
 
 from config import (
@@ -44,22 +45,25 @@ logger = logging.getLogger(__name__)
 class AntiCheatSystem:
     """
     考试监考系统主类
-    
+
     整合所有模块，实现完整的作弊检测流程
     """
-    
+
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.running = False
-        
+
         # 性能计时器
         self.frame_timer = FrameTimer()
         self.total_frames = 0
         self.start_time = 0
-        
+
         # 云端推理控制
         self.last_cloud_inference_time = 0
         self.cloud_inference_cooldown = 3.0  # 云端推理冷却时间
+
+        # 线程安全锁
+        self.detection_lock = threading.Lock()
         
         # 初始化模块
         logger.info("=" * 60)
@@ -217,21 +221,23 @@ class AntiCheatSystem:
                 description=result.explanation,
                 source="cloud"
             )
-            
-            # 更新当前检测状态
-            self.current_detection = {
-                "type": result.cheat_type_name,
-                "confidence": result.confidence,
-                "time": time.time()
-            }
-            
+
+            # 更新当前检测状态（加锁保护）
+            with self.detection_lock:
+                self.current_detection = {
+                    "type": result.cheat_type_name,
+                    "confidence": result.confidence,
+                    "time": time.time()
+                }
+
             # 添加到显示器预警历史
             if self.enhanced_display:
                 self.enhanced_display.add_alert(result.cheat_type_name)
         else:
             # 3秒后清除检测状态
-            if self.current_detection and time.time() - self.current_detection.get("time", 0) > 3:
-                self.current_detection = None
+            with self.detection_lock:
+                if self.current_detection and time.time() - self.current_detection.get("time", 0) > 3:
+                    self.current_detection = None
         
         # 检查响应时间
         if self.args.weak_network:
@@ -256,13 +262,15 @@ class AntiCheatSystem:
             display_frame = self.enhanced_display.render(
                 frame, pose_data, analysis_result, stats
             )
-            
+
             # 如果有检测到作弊，添加覆盖层
-            if self.current_detection:
+            with self.detection_lock:
+                detection = self.current_detection
+            if detection:
                 display_frame = draw_detection_overlay(
                     display_frame,
-                    self.current_detection["type"],
-                    self.current_detection["confidence"]
+                    detection["type"],
+                    detection["confidence"]
                 )
         else:
             # 简单显示模式
@@ -374,9 +382,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def signal_handler(signum, frame):
-    """信号处理器"""
+    """信号处理器 — 通过抛出 KeyboardInterrupt 让主循环优雅退出"""
     logger.info("接收到退出信号")
-    sys.exit(0)
+    raise KeyboardInterrupt
 
 
 def main():

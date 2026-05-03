@@ -291,8 +291,8 @@ class PoseDetector:
         """析构函数"""
         try:
             self.close()
-        except:
-            pass
+        except Exception:
+            logger.debug("姿态检测器析构时资源已释放或释放失败", exc_info=True)
 
 
 class PoseVisualizer:

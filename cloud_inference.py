@@ -20,13 +20,17 @@ from config import CLOUD_API, WEAK_NETWORK, CHEAT_BEHAVIORS
 # 尝试从 .env 文件加载环境变量
 def _load_env_file():
     env_path = Path(__file__).parent / ".env"
-    if env_path.exists():
+    if not env_path.exists():
+        return
+    try:
         with open(env_path, 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#') and '=' in line:
                     key, value = line.split('=', 1)
                     os.environ.setdefault(key.strip(), value.strip())
+    except Exception:
+        pass  # logger 尚未初始化，静默忽略
 
 _load_env_file()
 
@@ -212,7 +216,7 @@ class CloudInference:
             InferenceResult
         """
         # 在线程池中运行同步方法
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None,
             self.infer,
@@ -293,7 +297,7 @@ class CloudInference:
                 {"role": "user", "content": user_prompt}
             ],
             "temperature": 0.3,
-            "max_tokens": 500
+            "max_tokens": 300
         }
         
         # 手动序列化JSON并指定UTF-8编码，避免中文编码问题
@@ -339,37 +343,51 @@ class CloudInference:
         
         实际部署时应删除此方法，使用真实API
         """
-        # 简单的关键词匹配模拟
+        # 基于行为摘要中的结构化信息进行匹配（不再用裸字符串包含判断）
         is_cheating = False
         cheat_type_id = None
         cheat_type_name = ""
         confidence = 0
         explanation = "正常考试行为"
-        
-        prompt_lower = user_prompt.lower()
-        
-        if "头部" in user_prompt and ("转" in user_prompt or "偏" in user_prompt):
-            if "45" in user_prompt or "持续" in user_prompt:
+
+        import re
+
+        # 1. 头部偏转检测：解析角度数值和持续时间
+        head_angle_match = re.search(r'转动(\d+)°', user_prompt)
+        head_duration_match = re.search(r'持续(\d+\.?\d*)秒', user_prompt)
+        if head_angle_match:
+            angle = int(head_angle_match.group(1))
+            duration = float(head_duration_match.group(1)) if head_duration_match else 0
+            if angle >= 45 and duration >= 2.0:
                 is_cheating = True
                 cheat_type_id = 1
                 cheat_type_name = "旁窥"
-                confidence = 75
-                explanation = "头部大幅度偏转持续较长时间，疑似窥视他人试卷"
-        
-        elif "手" in user_prompt and "桌下" in user_prompt:
-            is_cheating = True
-            cheat_type_id = 2
-            cheat_type_name = "传递物品"
-            confidence = 70
-            explanation = "手部频繁移动至桌下，可能存在传递物品行为"
-        
-        elif "手" in user_prompt and "面部" in user_prompt:
-            if "15cm" in user_prompt or "靠近" in user_prompt:
+                confidence = min(75 + int((angle - 45) * 0.5), 90)
+                explanation = f"头部偏转{angle}°持续{duration:.1f}秒，疑似窥视他人试卷"
+
+        # 2. 手部移至桌下检测：解析次数
+        elif "手部移至桌下" in user_prompt:
+            count_match = re.search(r'(\d+)次', user_prompt)
+            count = int(count_match.group(1)) if count_match else 0
+            if count >= 2:
+                is_cheating = True
+                cheat_type_id = 2
+                cheat_type_name = "传递物品"
+                confidence = min(70 + count * 5, 90)
+                explanation = f"手部{count}次移动至桌下，可能存在传递物品行为"
+
+        # 3. 手掌靠近面部检测：解析距离值和持续时间
+        elif "手掌靠近面部" in user_prompt:
+            distance_match = re.search(r'(\d+\.?\d*)cm', user_prompt)
+            duration_match = re.search(r'持续(\d+\.?\d*)秒', user_prompt)
+            distance = float(distance_match.group(1)) if distance_match else 999
+            duration = float(duration_match.group(1)) if duration_match else 0
+            if distance < 15 and duration >= 1.0:
                 is_cheating = True
                 cheat_type_id = 3
                 cheat_type_name = "使用电子设备"
-                confidence = 80
-                explanation = "手掌靠近面部停留，疑似使用手机等电子设备"
+                confidence = min(80 + int((15 - distance) * 2), 95)
+                explanation = f"手掌距面部{distance:.1f}cm持续{duration:.1f}秒，疑似使用手机等电子设备"
         
         mock_response = {
             "is_cheating": is_cheating,

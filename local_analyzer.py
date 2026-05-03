@@ -228,6 +228,7 @@ class LocalAnalyzer:
         
         return event
     
+    # FIXME: 此方法当前未被任何调用路径使用
     def _analyze_hand_out_of_frame(
         self,
         side: str,
@@ -235,7 +236,7 @@ class LocalAnalyzer:
     ) -> Optional[BehaviorEvent]:
         """
         分析手部离开画面
-        
+
         手部离开画面视为传递物品的可疑行为
         """
         # 复用 HAND_BELOW_DESK 类型，因为都是传递物品的可疑行为

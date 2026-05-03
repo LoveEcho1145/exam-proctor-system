@@ -67,6 +67,11 @@ class AntiCheatGUI:
         self.capture_thread: Optional[threading.Thread] = None
         self.frame_queue = queue.Queue(maxsize=2)
         self.stop_event = threading.Event()
+
+        # 云端推理控制
+        self.last_cloud_inference_time = 0
+        self.cloud_inference_cooldown = 3.0  # 云端推理冷却时间
+        self.cloud_inference_lock = threading.Lock()
         
         # 违规记录
         self.violation_records = []
@@ -449,17 +454,24 @@ class AntiCheatGUI:
                 # 更新头部角度
                 self.head_angles = analysis_result.head_angles
 
-                # 检查是否需要触发云端推理
+                # 检查是否需要触发云端推理（带冷却和锁保护）
                 if analysis_result.should_trigger_cloud:
-                    behavior_summary = self.local_analyzer.get_behavior_summary()
-                    suspected_types = self.local_analyzer.get_suspected_cheat_types()
+                    current_time = time.time()
+                    with self.cloud_inference_lock:
+                        if current_time - self.last_cloud_inference_time >= self.cloud_inference_cooldown:
+                            self.last_cloud_inference_time = current_time
+                            should_infer = True
+                        else:
+                            should_infer = False
+                    if should_infer:
+                        behavior_summary = self.local_analyzer.get_behavior_summary()
+                        suspected_types = self.local_analyzer.get_suspected_cheat_types()
 
-                    # 异步调用云端
-                    threading.Thread(
-                        target=self._cloud_inference_callback,
-                        args=(behavior_summary, suspected_types),
-                        daemon=True
-                    ).start()
+                        threading.Thread(
+                            target=self._cloud_inference_callback,
+                            args=(behavior_summary, suspected_types),
+                            daemon=True
+                        ).start()
 
                 # 检查本地检测的违规行为
                 for event in analysis_result.local_behaviors:

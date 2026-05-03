@@ -331,13 +331,21 @@ class BehaviorBuffer:
         """
         if len(history) < 20:
             return False
-        
-        # 简单的峰值检测
+
+        # 峰值检测 — 加入最小显著性要求以抵抗噪声
+        history_arr = np.array(history)
+        std = np.std(history_arr)
+        if std < 1.0:
+            return False
+        min_prominence = std * 0.3
+
         peaks = 0
         for i in range(1, len(history) - 1):
-            if history[i] > history[i-1] and history[i] > history[i+1]:
+            if (history[i] > history[i-1] and history[i] > history[i+1] and
+                    history[i] - history[i-1] >= min_prominence and
+                    history[i] - history[i+1] >= min_prominence):
                 peaks += 1
-        
+
         return peaks >= min_periods
     
     def _detect_stable_position(self, history: List[float], threshold: float = 5.0) -> bool:
