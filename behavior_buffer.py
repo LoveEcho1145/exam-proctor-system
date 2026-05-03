@@ -51,6 +51,7 @@ class HeadRotationState:
     max_pitch: float = 0.0
     yaw_history: List[float] = field(default_factory=list)
     pitch_history: List[float] = field(default_factory=list)
+    last_event_time: float = 0.0  # 上次触发事件的时间，用于冷却
 
 
 @dataclass
@@ -123,6 +124,11 @@ class BehaviorBuffer:
         
         # 检查是否超过角度阈值
         if abs_yaw > threshold_angle:
+            # 冷却期：上次触发后5秒内不重新开始追踪
+            if timestamp - self.head_state.last_event_time < 5.0:
+                self.head_state.is_rotating = False
+                return None
+
             if not self.head_state.is_rotating:
                 # 开始新的旋转事件
                 self.head_state.is_rotating = True
@@ -155,10 +161,11 @@ class BehaviorBuffer:
                     event = self._filter_head_rotation(event, pitch)
                     
                     self._add_event(event)
-                    
-                    # 重置状态
+
+                    # 重置状态并记录冷却时间
                     self.head_state.is_rotating = False
-                    
+                    self.head_state.last_event_time = timestamp
+
                     return event
         else:
             # 角度恢复正常，重置状态

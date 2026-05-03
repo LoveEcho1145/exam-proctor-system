@@ -18,7 +18,6 @@ import logging
 import argparse
 import signal
 import sys
-from typing import Optional
 import cv2
 
 from config import (
@@ -350,8 +349,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--display", "-d",
         action="store_true",
-        default=True,  # 默认开启显示
-        help="显示监控画面（默认开启）"
+        help="显示监控画面"
     )
     
     parser.add_argument(

@@ -11,16 +11,13 @@ import threading
 import logging
 import queue
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-from PIL import Image, ImageTk, ImageDraw, ImageFont
+from PIL import Image, ImageTk
 
-from config import (
-    VIDEO_CAPTURE, LOCAL_THRESHOLDS, CHEAT_BEHAVIORS,
-    PERFORMANCE, ALERT_SYSTEM
-)
+
 from video_capture import VideoCapture
 from pose_detector import PoseDetector
 from local_analyzer import LocalAnalyzer
@@ -362,7 +359,7 @@ class AntiCheatGUI:
         if self.video_capture:
             self.video_capture.stop()
         if self.pose_detector:
-            self.pose_detector.cleanup()
+            self.pose_detector.close()
         
         # 更新按钮状态
         self.start_btn.config(state=tk.NORMAL)
@@ -434,63 +431,66 @@ class AntiCheatGUI:
             if self.is_paused:
                 time.sleep(0.1)
                 continue
-            
-            start_time = time.perf_counter()
-            
-            # 读取帧
-            success, frame = self.video_capture.read_frame()
-            if not success or frame is None:
-                continue
-            
-            # 姿态检测
-            pose_data = self.pose_detector.detect(frame)
-            
-            # 本地分析
-            analysis_result = self.local_analyzer.analyze(pose_data)
-            
-            # 更新头部角度
-            self.head_angles = analysis_result.head_angles
-            
-            # 检查是否需要触发云端推理
-            if analysis_result.should_trigger_cloud:
-                behavior_summary = self.local_analyzer.get_behavior_summary()
-                suspected_types = self.local_analyzer.get_suspected_cheat_types()
-                
-                # 异步调用云端
-                threading.Thread(
-                    target=self._cloud_inference_callback,
-                    args=(behavior_summary, suspected_types),
-                    daemon=True
-                ).start()
-            
-            # 检查本地检测的违规行为
-            for event in analysis_result.local_behaviors:
-                if event.is_suspicious and not event.is_filtered:
-                    # 映射事件类型到违规名称
-                    if event.event_type == BehaviorType.HEAD_ROTATION:
-                        self._add_violation_threadsafe("头部偏转异常", 0.85)
-                    elif event.event_type == BehaviorType.HAND_BELOW_DESK:
-                        self._add_violation_threadsafe("手部移至桌下", 0.80)
-                    elif event.event_type == BehaviorType.PALM_NEAR_FACE:
-                        self._add_violation_threadsafe("手掌靠近面部", 0.75)
-            
-            # 绘制检测结果到帧上
-            display_frame = self._draw_detection_overlay(frame, pose_data, analysis_result)
-            
-            # 计算处理时间
-            self.processing_time = (time.perf_counter() - start_time) * 1000
-            self.frame_count += 1
-            
-            # 计算FPS
-            elapsed = time.time() - self.start_time
-            if elapsed > 0:
-                self.current_fps = self.frame_count / elapsed
-            
-            # 将帧放入队列
+
             try:
-                self.frame_queue.put_nowait(display_frame)
-            except queue.Full:
-                pass
+                start_time = time.perf_counter()
+
+                # 读取帧
+                success, frame = self.video_capture.read_frame()
+                if not success or frame is None:
+                    continue
+
+                # 姿态检测
+                pose_data = self.pose_detector.detect(frame)
+
+                # 本地分析
+                analysis_result = self.local_analyzer.analyze(pose_data)
+
+                # 更新头部角度
+                self.head_angles = analysis_result.head_angles
+
+                # 检查是否需要触发云端推理
+                if analysis_result.should_trigger_cloud:
+                    behavior_summary = self.local_analyzer.get_behavior_summary()
+                    suspected_types = self.local_analyzer.get_suspected_cheat_types()
+
+                    # 异步调用云端
+                    threading.Thread(
+                        target=self._cloud_inference_callback,
+                        args=(behavior_summary, suspected_types),
+                        daemon=True
+                    ).start()
+
+                # 检查本地检测的违规行为
+                for event in analysis_result.local_behaviors:
+                    if event.is_suspicious and not event.is_filtered:
+                        if event.event_type == BehaviorType.HEAD_ROTATION:
+                            self._add_violation_threadsafe("头部偏转异常", 0.85)
+                        elif event.event_type == BehaviorType.HAND_BELOW_DESK:
+                            self._add_violation_threadsafe("手部移至桌下", 0.80)
+                        elif event.event_type == BehaviorType.PALM_NEAR_FACE:
+                            self._add_violation_threadsafe("手掌靠近面部", 0.75)
+
+                # 绘制检测结果到帧上
+                display_frame = self._draw_detection_overlay(frame, pose_data, analysis_result)
+
+                # 计算处理时间
+                self.processing_time = (time.perf_counter() - start_time) * 1000
+                self.frame_count += 1
+
+                # 计算FPS
+                elapsed = time.time() - self.start_time
+                if elapsed > 0:
+                    self.current_fps = self.frame_count / elapsed
+
+                # 将帧放入队列
+                try:
+                    self.frame_queue.put_nowait(display_frame)
+                except queue.Full:
+                    pass
+            except Exception:
+                logger.error("捕获循环异常", exc_info=True)
+                time.sleep(0.5)
     
     def _add_violation_threadsafe(self, violation_type: str, confidence: float):
         """线程安全的添加违规记录"""
@@ -500,7 +500,7 @@ class AntiCheatGUI:
         """云端推理回调"""
         try:
             result = self.cloud_inference.infer(behavior_summary, suspected_types)
-            if result and result.is_cheating:
+            if result and result.cheat_detected:
                 cheat_name = result.cheat_type_name or "未知违规"
                 self._add_violation_threadsafe(f"[云端] {cheat_name}", result.confidence)
         except Exception as e:
@@ -511,37 +511,29 @@ class AntiCheatGUI:
         display = frame.copy()
         h, w = frame.shape[:2]
         
-        # 绘制面部关键点
+        # 绘制面部关键点（坐标已由 pose_detector 转为像素坐标，无需再乘 w/h）
         if pose_data.face.detected:
-            # 鼻尖
-            if pose_data.face.nose_tip:
-                x, y = int(pose_data.face.nose_tip[0] * w), int(pose_data.face.nose_tip[1] * h)
-                cv2.circle(display, (x, y), 5, (0, 255, 255), -1)
-            
-            # 眼睛
+            if pose_data.face.nose_tip is not None:
+                cv2.circle(display, (int(pose_data.face.nose_tip[0]), int(pose_data.face.nose_tip[1])), 5, (0, 255, 255), -1)
+
             for eye in [pose_data.face.left_eye_center, pose_data.face.right_eye_center]:
-                if eye:
-                    x, y = int(eye[0] * w), int(eye[1] * h)
-                    cv2.circle(display, (x, y), 4, (0, 255, 0), -1)
-            
-            # 虹膜
+                if eye is not None:
+                    cv2.circle(display, (int(eye[0]), int(eye[1])), 4, (0, 255, 0), -1)
+
             for iris in [pose_data.face.left_iris_center, pose_data.face.right_iris_center]:
-                if iris:
-                    x, y = int(iris[0] * w), int(iris[1] * h)
-                    cv2.circle(display, (x, y), 3, (255, 0, 255), -1)
-        
+                if iris is not None:
+                    cv2.circle(display, (int(iris[0]), int(iris[1])), 3, (255, 0, 255), -1)
+
         # 绘制手部关键点
         for hand, color in [(pose_data.left_hand, (255, 100, 100)), (pose_data.right_hand, (100, 255, 100))]:
-            if hand.detected and hand.landmarks:
-                # 绘制所有关键点
-                for lm in hand.landmarks:
-                    x, y = int(lm[0] * w), int(lm[1] * h)
-                    cv2.circle(display, (x, y), 4, color, -1)
-                
-                # 绘制手腕（更大的圆）
-                if hand.wrist:
-                    x, y = int(hand.wrist[0] * w), int(hand.wrist[1] * h)
-                    cv2.circle(display, (x, y), 8, (0, 255, 255), -1)
+            if hand.detected:
+                for point in [hand.wrist, hand.thumb_tip, hand.index_tip,
+                              hand.middle_tip, hand.ring_tip, hand.pinky_tip, hand.palm_center]:
+                    if point is not None:
+                        cv2.circle(display, (int(point[0]), int(point[1])), 4, color, -1)
+
+                if hand.wrist is not None:
+                    cv2.circle(display, (int(hand.wrist[0]), int(hand.wrist[1])), 8, (0, 255, 255), -1)
         
         # 显示头部角度
         yaw, pitch, roll = analysis_result.head_angles

@@ -103,13 +103,6 @@ class LocalAnalyzer:
                     result.local_behaviors.append(hand_event)
                     if hand_event.is_suspicious and not hand_event.is_filtered:
                         result.has_suspicious_behavior = True
-            else:
-                # 手部离开画面，视为可疑行为
-                hand_event = self._analyze_hand_out_of_frame(side, timestamp)
-                if hand_event:
-                    result.local_behaviors.append(hand_event)
-                    if hand_event.is_suspicious and not hand_event.is_filtered:
-                        result.has_suspicious_behavior = True
         
         # 3. 判断是否触发云端推理
         should_trigger, trigger_event = self.behavior_buffer.should_trigger_cloud_inference(timestamp)

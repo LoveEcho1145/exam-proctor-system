@@ -13,24 +13,7 @@ from datetime import datetime
 
 from config import ALERT_SYSTEM, CHEAT_BEHAVIORS
 
-# 配置日志
-logging.basicConfig(
-    level=getattr(logging, ALERT_SYSTEM["log_level"]),
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-
 logger = logging.getLogger(__name__)
-
-# 文件日志处理器
-file_handler = logging.FileHandler(
-    ALERT_SYSTEM["log_file"],
-    encoding='utf-8'
-)
-file_handler.setLevel(logging.INFO)
-file_handler.setFormatter(logging.Formatter(
-    '%(asctime)s - %(levelname)s - %(message)s'
-))
-logger.addHandler(file_handler)
 
 
 class AlertSeverity(Enum):
@@ -310,29 +293,29 @@ class AlertSystem:
 def setup_logging(log_file: str = None, level: str = "INFO"):
     """
     配置全局日志
-    
+
     Args:
-        log_file: 日志文件路径
+        log_file: 日志文件路径，默认使用 ALERT_SYSTEM["log_file"]
         level: 日志级别
     """
     log_level = getattr(logging, level.upper(), logging.INFO)
-    
-    # 配置根日志器
+
+    if log_file is None:
+        log_file = ALERT_SYSTEM.get("log_file", "cheat_detection.log")
+
     logging.basicConfig(
         level=log_level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.StreamHandler()
+            logging.StreamHandler(),
+            logging.FileHandler(log_file, encoding='utf-8')
         ]
     )
-    
-    # 如果指定了文件，添加文件处理器
-    if log_file:
-        file_handler = logging.FileHandler(log_file, encoding='utf-8')
-        file_handler.setLevel(log_level)
-        file_handler.setFormatter(logging.Formatter(
-            '%(asctime)s - %(levelname)s - %(message)s'
-        ))
-        logging.getLogger().addHandler(file_handler)
-    
+
+    for handler in logging.getLogger().handlers:
+        if isinstance(handler, logging.FileHandler):
+            handler.setFormatter(logging.Formatter(
+                '%(asctime)s - %(levelname)s - %(message)s'
+            ))
+
     logging.info(f"日志系统初始化完成，级别: {level}")
